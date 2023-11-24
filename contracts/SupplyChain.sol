@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.4.22 <0.9.0;
 
-contract SupplyChain {
+contract supplychain {
     //Smart Contract owner will be the person who deploys the contract only he can authorize various roles like retailer, Manufacturer,etc
     address public Owner;
 
@@ -54,10 +54,21 @@ contract SupplyChain {
         uint256 DISid; //id of the distributor for this particular medicine
         uint256 RETid; //id of the retailer for this particular medicine
         STAGE stage; //current medicine stage
+        uint256 productionDate; // timestamp indicating the production date
+        uint256 expiryDate; 
+    }
+
+    struct MedicineTimestamps {
+        uint256 RMSsupplyTimestamp;
+        uint256 manufacturingTimestamp;
+        uint256 distributionTimestamp;
+        uint256 retailTimestamp;
+        uint256 soldTimestamp;
     }
 
     //To store all the medicines on the blockchain
     mapping(uint256 => medicine) public MedicineStock;
+    mapping(uint256 => MedicineTimestamps) public MedicineTimestampRecords;
 
     //To show status to client applications
     function showStage(uint256 _medicineID)
@@ -172,6 +183,7 @@ contract SupplyChain {
         require(MedicineStock[_medicineID].stage == STAGE.Init);
         MedicineStock[_medicineID].RMSid = _id;
         MedicineStock[_medicineID].stage = STAGE.RawMaterialSupply;
+        MedicineTimestampRecords[_medicineID].RMSsupplyTimestamp = block.timestamp;
     }
 
     //To check if RMS is available in the blockchain
@@ -184,13 +196,23 @@ contract SupplyChain {
     }
 
     //To manufacture medicine
-    function Manufacturing(uint256 _medicineID) public {
+   function Manufacturing(
+        uint256 _medicineID,
+        uint256 _expiryDate
+    ) public {
         require(_medicineID > 0 && _medicineID <= medicineCtr);
         uint256 _id = findMAN(msg.sender);
         require(_id > 0);
         require(MedicineStock[_medicineID].stage == STAGE.RawMaterialSupply);
+
+        // Set the production date and expiry date
+        MedicineStock[_medicineID].productionDate = block.timestamp;
+        MedicineStock[_medicineID].expiryDate = _expiryDate;
+
+        // Update the stage to Manufacture
         MedicineStock[_medicineID].MANid = _id;
         MedicineStock[_medicineID].stage = STAGE.Manufacture;
+        MedicineTimestampRecords[_medicineID].manufacturingTimestamp = block.timestamp;
     }
 
     //To check if Manufacturer is available in the blockchain
@@ -210,6 +232,7 @@ contract SupplyChain {
         require(MedicineStock[_medicineID].stage == STAGE.Manufacture);
         MedicineStock[_medicineID].DISid = _id;
         MedicineStock[_medicineID].stage = STAGE.Distribution;
+        MedicineTimestampRecords[_medicineID].distributionTimestamp = block.timestamp;
     }
 
     //To check if distributor is available in the blockchain
@@ -229,6 +252,7 @@ contract SupplyChain {
         require(MedicineStock[_medicineID].stage == STAGE.Distribution);
         MedicineStock[_medicineID].RETid = _id;
         MedicineStock[_medicineID].stage = STAGE.Retail;
+        MedicineTimestampRecords[_medicineID].retailTimestamp = block.timestamp;
     }
 
     //To check if retailer is available in the blockchain
@@ -248,13 +272,14 @@ contract SupplyChain {
         require(_id == MedicineStock[_medicineID].RETid); //Only correct retailer can mark medicine as sold
         require(MedicineStock[_medicineID].stage == STAGE.Retail);
         MedicineStock[_medicineID].stage = STAGE.sold;
+        MedicineTimestampRecords[_medicineID].soldTimestamp = block.timestamp;
     }
-
-    // To add new medicines to the stock
-    function addMedicine(string memory _name, string memory _description)
-        public
-        onlyByOwner()
-    {
+    mapping(uint256 => string) public BatchIDs;
+    function addMedicineWithBatchID(
+        string memory _name,
+        string memory _description,
+        string memory _batchID
+    ) public onlyByOwner() {
         require((rmsCtr > 0) && (manCtr > 0) && (disCtr > 0) && (retCtr > 0));
         medicineCtr++;
         MedicineStock[medicineCtr] = medicine(
@@ -265,7 +290,47 @@ contract SupplyChain {
             0,
             0,
             0,
-            STAGE.Init
+            STAGE.Init,
+            0,
+            0
         );
+        BatchIDs[medicineCtr] = _batchID;
     }
+
+    function verifyBatchID(uint256 _medicineID, string memory _batchID) public view returns (bool) {
+        require(_medicineID > 0 && _medicineID <= medicineCtr);
+        return keccak256(abi.encodePacked(BatchIDs[_medicineID])) == keccak256(abi.encodePacked(_batchID));
+    }
+
+    
+    function viewTimestamps(uint256 _medicineID)
+    public
+    view
+    returns (
+        uint256 RMSsupplyTimestamp,
+        uint256 manufacturingTimestamp,
+        uint256 distributionTimestamp,
+        uint256 retailTimestamp,
+        uint256 soldTimestamp
+    )
+{
+    require(_medicineID > 0 && _medicineID <= medicineCtr, "Invalid Medicine ID");
+
+    MedicineTimestamps storage timestamps = MedicineTimestampRecords[_medicineID];
+
+    return (
+        timestamps.RMSsupplyTimestamp,
+        timestamps.manufacturingTimestamp,
+        timestamps.distributionTimestamp,
+        timestamps.retailTimestamp,
+        timestamps.soldTimestamp
+    );
+}
+
+    // To add new medicines to the stock
+    function Date(uint256 _medicineID) public view returns (uint256, uint256) {
+    require(_medicineID > 0 && _medicineID <= medicineCtr);
+    return (MedicineStock[_medicineID].productionDate, MedicineStock[_medicineID].expiryDate);
+}
+    
 }
